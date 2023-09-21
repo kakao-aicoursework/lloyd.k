@@ -20,7 +20,7 @@ system_message_prompt = SystemMessage(content=system_message)
 with open("./chat_bot/project_data_카카오싱크.txt", "rt") as f:
     assistant_template = f.read()
 
-human_template = ("해당 질문에 간단하게 답해주세요\n"
+human_template = ("아래 질문에 간단하게 답해주세요\n"
                   "{qa}\n"
                   )
 
@@ -31,24 +31,30 @@ chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, assistant
 
 chain = LLMChain(llm=chat, prompt=chat_prompt)
 
+
 class State(pc.State):
 
     # The current question being asked.
     question: str
 
     # Keep track of the chat history as a list of (question, answer) tuples.
-    chat_history: str
+    chat_history: list[list[str]]
 
     def answer(self):
-        # Our chatbot is not very smart right now...
-        answer = "I don't know!"
-        self.chat_history.append((self.question, answer))
+        response = chain.run(qa=self.question)
+        answer = ""
+        self.chat_history.append([self.question, answer])
+        self.question = ""
+        yield
 
-    def handle_submit(self, form_data):
-        self.question = form_data['qa']
-        ans = chain.run(qa=self.question)
-        self.chat_history += f"question: {self.question} \n answer: {self.answer}"
-        print(ans)
+        if response:
+            answer += response
+            self.chat_history[-1] = [
+                self.chat_history[-1][0],
+                answer,
+            ]
+        yield
+
 
 def qa(question: str, answer: str) -> pc.Component:
     return pc.box(
@@ -65,28 +71,27 @@ def qa(question: str, answer: str) -> pc.Component:
 
 
 def chat() -> pc.Component:
-    qa_str = State.chat_history
-    qa_pairs = []
-
     return pc.box(
-        *[
-            qa(question, answer)
-            for question, answer in qa_pairs
-        ]
+        pc.foreach(
+            State.chat_history,
+            lambda messages: qa(messages[0], messages[1]),
+        )
     )
 
 
 def action_bar() -> pc.Component:
-    return pc.form(
-        pc.hstack(
-            pc.input(
-                placeholder="Ask a question",
-                style=style.input_style,
-                id="qa",
-            ),
-            pc.button("Ask", style=style.button_style, type_="submit"),
+    return pc.hstack(
+        pc.input(
+            value=State.question,
+            placeholder="Ask a question",
+            on_change=State.set_question,
+            style=style.input_style,
         ),
-        on_submit=State.handle_submit
+        pc.button(
+            "Ask",
+            on_click=State.answer,
+            style=style.button_style,
+        ),
     )
 
 
